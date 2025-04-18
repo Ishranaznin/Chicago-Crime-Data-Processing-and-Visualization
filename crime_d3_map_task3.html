@@ -1,0 +1,127 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+  <meta charset="UTF-8">
+  <title>Chicago Crime Choropleth with K-NN Graph</title>
+  <script src="https://d3js.org/d3.v7.min.js"></script>
+  <style>
+    body {
+      font-family: sans-serif;
+    }
+    .neighborhood {
+      stroke: #fff;
+      stroke-width: 0.5;
+    }
+    .tooltip {
+      position: absolute;
+      padding: 6px 10px;
+      background: white;
+      border: 1px solid #aaa;
+      border-radius: 4px;
+      pointer-events: none;
+      font-size: 13px;
+      box-shadow: 0 0 6px rgba(0, 0, 0, 0.15);
+    }
+    .graph-edge {
+      stroke: #999;
+      stroke-width: 1px;
+      opacity: 0.6;
+    }
+    /* Updated color for centroids */
+    .graph-node {
+      fill: #5628ba; /* Tomato color for centroids */
+      stroke: #fff;
+      stroke-width: 2px;
+    }
+  </style>
+</head>
+<body>
+
+  <svg width="960" height="600"></svg>
+  <div class="tooltip" style="opacity: 0;"></div>
+
+  <script>
+    const width = 960, height = 600;
+    const svg = d3.select("svg");
+    const tooltip = d3.select(".tooltip");
+
+    const color = d3.scaleSequential(d3.interpolateYlOrRd).domain([0, 200]);
+
+    // Load the GeoJSON data
+    d3.json("neighborhoods_with_crime.geojson").then(data => {
+      // Projection for Mercator
+      const projection = d3.geoMercator().fitSize([width, height], data);
+      const path = d3.geoPath().projection(projection);
+
+      // Draw neighborhood polygons
+      svg.selectAll("path")
+        .data(data.features)
+        .enter().append("path")
+        .attr("class", "neighborhood")
+        .attr("d", path)
+        .attr("fill", d => color(d.properties.crime_count || 0))
+        .on("mouseover", function(event, d) {
+          tooltip.transition().duration(200).style("opacity", 0.9);
+          tooltip.html(`<strong>${d.properties.neighborhood}</strong><br>Crimes: ${d.properties.crime_count}`)
+                 .style("left", (event.pageX + 5) + "px")
+                 .style("top", (event.pageY - 28) + "px");
+        })
+        .on("mouseout", () => tooltip.transition().duration(500).style("opacity", 0));
+
+      // Manually calculate centroids and project them to the map
+      data.features.forEach(function(feature) {
+        // Calculate centroid of each neighborhood's geometry
+        feature.centroid = d3.geoCentroid(feature);
+      });
+
+      // Load the neighborhood graph (k-nearest neighbors)
+      d3.json("neighborhood_graph.json").then(graph => {
+        // Add edges (lines between neighborhoods)
+        svg.selectAll(".graph-edge")
+          .data(graph.links)
+          .enter().append("line")
+          .attr("class", "graph-edge")
+          .attr("x1", d => {
+            const source = data.features.find(f => f.properties.neighborhood === d.source);
+            const centroid = projection(source.centroid);
+            return centroid[0];
+          })
+          .attr("y1", d => {
+            const source = data.features.find(f => f.properties.neighborhood === d.source);
+            const centroid = projection(source.centroid);
+            return centroid[1];
+          })
+          .attr("x2", d => {
+            const target = data.features.find(f => f.properties.neighborhood === d.target);
+            const centroid = projection(target.centroid);
+            return centroid[0];
+          })
+          .attr("y2", d => {
+            const target = data.features.find(f => f.properties.neighborhood === d.target);
+            const centroid = projection(target.centroid);
+            return centroid[1];
+          });
+
+        // Add nodes (centroids of neighborhoods)
+        svg.selectAll(".graph-node")
+          .data(data.features)
+          .enter().append("circle")
+          .attr("class", "graph-node")
+          .attr("cx", d => {
+            const centroid = projection(d.centroid);
+            return centroid[0];
+          })
+          .attr("cy", d => {
+            const centroid = projection(d.centroid);
+            return centroid[1];
+          })
+          .attr("r", 6)  // Increase radius for visibility
+          .attr("fill", "#FF6347")  // Color for centroids
+          .attr("stroke", "#fff")
+          .attr("stroke-width", 2);
+      });
+    });
+  </script>
+
+</body>
+</html>
